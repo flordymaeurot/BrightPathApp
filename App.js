@@ -3,7 +3,7 @@ import React, {
 } from 'react';
 import {
   StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView,
-  StatusBar, Alert, Modal, KeyboardAvoidingView, Platform,
+  StatusBar, Alert, Modal, KeyboardAvoidingView, Platform, Animated, PanResponder,
 } from 'react-native';
 import {
   SafeAreaProvider, SafeAreaView, useSafeAreaInsets,
@@ -460,25 +460,150 @@ function DeleteAccountModal({ visible, onClose, onConfirm }) {
 // ==========================================
 function SplashScreen({ navigation }) {
   const { ready, user } = useApp();
+  const [on, setOn] = useState(false);
+  const isOn = useRef(false);
+  const glow = useRef(new Animated.Value(0)).current;
+  const content = useRef(new Animated.Value(0)).current;
+  const pull = useRef(new Animated.Value(0)).current;
+  const hint = useRef(new Animated.Value(0.2)).current;
 
+  const turnOn = () => {
+    if (isOn.current) return;
+    isOn.current = true;
+    setOn(true);
+    Animated.sequence([
+      Animated.timing(glow, { toValue: 0.5, duration: 80, useNativeDriver: true }),
+      Animated.timing(glow, { toValue: 0.05, duration: 90, useNativeDriver: true }),
+      Animated.timing(glow, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.timing(content, { toValue: 1, duration: 500, useNativeDriver: true }),
+    ]).start();
+  };
+
+  // soft pulsing hint in the dark
   useEffect(() => {
-    if (!ready) return undefined;
-    const t = setTimeout(() => {
-      navigation.replace(user ? routeForRole(user.role) : 'Login');
-    }, 1500);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(hint, { toValue: 0.8, duration: 900, useNativeDriver: true }),
+        Animated.timing(hint, { toValue: 0.2, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [hint]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, g) => pull.setValue(Math.max(0, Math.min(g.dy, 70))),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 30 || Math.abs(g.dy) < 6) turnOn(); // a pull or a simple tap
+        Animated.spring(pull, { toValue: 0, friction: 4, useNativeDriver: true }).start();
+      },
+    })
+  ).current;
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' }}>
+    <View style={splashStyles.root}>
       <StatusBar barStyle="light-content" />
-      <Text style={{ fontSize: 80 }}>🎓</Text>
-      <Text style={{ color: '#fff', fontSize: 32, fontWeight: 'bold', marginTop: 10 }}>BrightPath</Text>
-      <Text style={{ color: '#e0f2e9', fontSize: 16 }}>Tutorial services</Text>
+
+      {/* the original green splash, hidden until the light is on */}
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.primary, opacity: glow }]} />
+
+      {/* the lamp: dim in the dark, bright when lit */}
+      <View style={splashStyles.lamp}>
+        <View style={splashStyles.wire} />
+        <View>
+          <View style={splashStyles.shadeOff} />
+          <Animated.View style={[splashStyles.shadeOn, { opacity: glow }]} />
+        </View>
+        <View style={splashStyles.bulbWrap}>
+          <Animated.View style={[splashStyles.halo, { opacity: glow }]} />
+          <View style={splashStyles.bulbOff} />
+          <Animated.View style={[splashStyles.bulbOn, { opacity: glow }]} />
+        </View>
+
+        <Animated.View style={[splashStyles.cone, { opacity: glow }]} />
+
+        {/* pull string */}
+        <Animated.View style={[splashStyles.cord, { transform: [{ translateY: pull }] }]} {...panResponder.panHandlers}>
+          <View style={splashStyles.cordLine} />
+          <View style={splashStyles.cordKnob} />
+        </Animated.View>
+      </View>
+
+      {!on && (
+        <Animated.Text style={[splashStyles.hint, { opacity: hint }]}>Pull the string 💡</Animated.Text>
+      )}
+
+      {/* your original splash design, revealed after the light turns on */}
+      <Animated.View style={[splashStyles.content, { opacity: content }]} pointerEvents={on ? 'box-none' : 'none'}>
+        <Text style={{ fontSize: 80 }}>🎓</Text>
+        <Text style={{ color: '#fff', fontSize: 32, fontWeight: 'bold', marginTop: 10 }}>BrightPath</Text>
+        <Text style={{ color: '#e0f2e9', fontSize: 16 }}>Tutorial services</Text>
+
+        {ready && (
+          <View style={{ width: '100%', marginTop: 40 }}>
+            {user ? (
+              <TouchableOpacity
+                style={splashStyles.btnLight}
+                onPress={() => navigation.replace(routeForRole(user.role))}
+              >
+                <Text style={splashStyles.btnLightText}>Continue as {user.name.split(' ')[0]}</Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity style={splashStyles.btnLight} onPress={() => navigation.replace('Login')}>
+                  <Text style={splashStyles.btnLightText}>Login</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={splashStyles.btnOutline} onPress={() => navigation.replace('SignUp')}>
+                  <Text style={splashStyles.btnOutlineText}>Sign up</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+      </Animated.View>
     </View>
   );
 }
+
+const splashStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#000', alignItems: 'center' },
+  lamp: { width: 120, alignItems: 'center' },
+  wire: { width: 3, height: 90, backgroundColor: '#2b2b2b' },
+  shadeOff: {
+    width: 120, height: 60, backgroundColor: '#1a1f1c',
+    borderTopLeftRadius: 60, borderTopRightRadius: 60,
+  },
+  shadeOn: {
+    position: 'absolute', top: 0, left: 0, width: 120, height: 60, backgroundColor: '#e8f5e9',
+    borderTopLeftRadius: 60, borderTopRightRadius: 60,
+  },
+  bulbWrap: { width: 36, height: 36, marginTop: -6, alignItems: 'center', justifyContent: 'center' },
+  halo: { position: 'absolute', width: 110, height: 110, borderRadius: 55, backgroundColor: 'rgba(255,226,122,0.35)' },
+  bulbOff: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: '#2a2e2c' },
+  bulbOn: { position: 'absolute', width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFE27A' },
+  cone: {
+    position: 'absolute', top: 140, width: 0, height: 0,
+    borderLeftWidth: 140, borderRightWidth: 140, borderBottomWidth: 300,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent',
+    borderBottomColor: 'rgba(255,236,160,0.2)',
+    transform: [{ rotate: '180deg' }],
+  },
+  cord: { position: 'absolute', top: 148, right: 2, alignItems: 'center', paddingHorizontal: 14 },
+  cordLine: { width: 2, height: 60, backgroundColor: '#555' },
+  cordKnob: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#8a8a6a', borderWidth: 2, borderColor: '#666' },
+  hint: { position: 'absolute', bottom: 80, color: '#7a8a80', fontSize: 15 },
+  content: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center', alignItems: 'center',
+    paddingHorizontal: 30, paddingTop: 150,
+  },
+  btnLight: { backgroundColor: '#fff', padding: 16, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
+  btnLightText: { color: COLORS.primary, fontWeight: 'bold', fontSize: 16 },
+  btnOutline: { borderWidth: 2, borderColor: '#fff', padding: 14, borderRadius: 10, alignItems: 'center' },
+  btnOutlineText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+});
 
 // ==========================================
 // 2. LOGIN (students, tutors and admin all sign in here)
@@ -1739,6 +1864,7 @@ function MainTabs() {
   return (
     <Tab.Navigator screenOptions={{
       headerShown: false,
+      animation: 'fade',
       tabBarActiveTintColor: COLORS.primary,
       tabBarInactiveTintColor: COLORS.gray,
       tabBarLabelStyle: { fontSize: 12 },
@@ -1757,16 +1883,25 @@ export default function App() {
     <SafeAreaProvider>
       <AppProvider>
         <NavigationContainer>
-          <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Splash">
-            <Stack.Screen name="Splash" component={SplashScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="SignUp" component={SignUpScreen} />
-            <Stack.Screen name="TutorRegistration" component={TutorRegistrationScreen} />
-            <Stack.Screen name="Main" component={MainTabs} />
+          <Stack.Navigator
+            initialRouteName="Splash"
+            screenOptions={{
+              headerShown: false,
+              animation: 'slide_from_right',
+              animationDuration: 300,
+              animationTypeForReplace: 'push',
+              gestureEnabled: true,
+            }}
+            >
+            <Stack.Screen name="Splash" component={SplashScreen} options={{ animation: 'fade' }} />
+            <Stack.Screen name="Login" component={LoginScreen} options={{ animation: 'fade' }} />
+            <Stack.Screen name="SignUp" component={SignUpScreen} options={{ animation: 'fade' }} />
+            <Stack.Screen name="TutorRegistration" component={TutorRegistrationScreen} options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="Main" component={MainTabs} options={{ animation: 'fade', gestureEnabled: false }}/>
             <Stack.Screen name="TutorProfile" component={TutorProfileScreen} />
-            <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />
-            <Stack.Screen name="TutorDashboard" component={TutorDashboardScreen} />
-            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+            <Stack.Screen name="ChatRoom" component={ChatRoomScreen} options={{ animation: 'fade_from_bottom' }}/>
+            <Stack.Screen name="TutorDashboard" component={TutorDashboardScreen} options={{ animation: 'fade', gestureEnabled: false }}/>
+            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ animation: 'fade', gestureEnabled: false }}/>
           </Stack.Navigator>
         </NavigationContainer>
       </AppProvider>
